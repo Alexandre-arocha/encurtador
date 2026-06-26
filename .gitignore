@@ -1,0 +1,62 @@
+# Env
+.env
+.env.local
+
+# Go
+/backend/bin/
+/backend/tmp/
+*.exe
+*.test
+*.out
+
+# GeoIP database (baixado manualmente)
+/data/*.mmdb
+
+# Node / Next.js
+/web/node_modules/
+/web/.next/
+/web/out/
+/web/.env.local
+
+# Editores / OS
+.DS_Store
+.idea/
+.vscode/
+
+CLAUDE.md
+**/CLAUDE.md
+.claude/
+**/.claude/
+
+AGENTS.md
+**/AGENTS.md
+.agents/
+**/.agents/
+
+CODEX.md
+**/CODEX.md
+.codex/
+**/.codex/
+
+# Arquivos de IA / agentes
+CLAUDE.md
+**/CLAUDE.md
+AGENTS.md
+**/AGENTS.md
+codex-tasks.md
+**/codex-tasks.md
+CODEX.md
+**/CODEX.md
+
+# Pastas de IA / agentes
+.claude/
+**/.claude/
+.codex/
+**/.codex/
+.agents/
+**/.agents/
+
+# Ambiente
+.env
+.env.*
+!.env.example

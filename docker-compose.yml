@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: encurtador-postgres
+    environment:
+      POSTGRES_USER: encurtador
+      POSTGRES_PASSWORD: encurtador
+      POSTGRES_DB: encurtador
+    ports:
+      # Host 5455 para evitar conflito com outros Postgres locais (5432/5433/5544).
+      - "5455:5432"
+    volumes:
+      - encurtador-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U encurtador -d encurtador"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  encurtador-pgdata:

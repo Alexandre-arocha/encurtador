@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS link_daily;
+DROP TABLE IF EXISTS clicks;
