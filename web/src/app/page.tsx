@@ -88,6 +88,11 @@ export default function Home() {
 
   const api = useMemo(() => new APIClient(baseURL.replace(/\/$/, ""), apiKey), [apiKey, baseURL]);
   const selected = links.find((item) => item.id === selectedID) ?? links[0] ?? null;
+  const dailyData = stats?.daily ?? [];
+  const deviceData = stats?.devices ?? [];
+  const countryData = stats?.countries ?? [];
+  const referrerData = stats?.top_referrers ?? [];
+  const hasDailyClicks = dailyData.some((point) => point.clicks > 0);
 
   const loadLinks = useCallback(async () => {
     setBusy(true);
@@ -373,9 +378,11 @@ export default function Home() {
                   <div className="h-72 rounded-md border border-border p-3">
                     {statsBusy ? (
                       <LoadingBlock />
+                    ) : !hasDailyClicks ? (
+                      <EmptyBlock>Sem cliques no periodo</EmptyBlock>
                     ) : (
                       <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={stats?.daily ?? []} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
+                        <AreaChart data={dailyData} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
                           <defs>
                             <linearGradient id="clicksFill" x1="0" x2="0" y1="0" y2="1">
                               <stop offset="5%" stopColor="#0f766e" stopOpacity={0.35} />
@@ -394,37 +401,45 @@ export default function Home() {
 
                   <div className="mt-4 grid gap-4 lg:grid-cols-2">
                     <ChartBox title="Dispositivos">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                          <Pie data={stats?.devices ?? []} dataKey="clicks" nameKey="key" innerRadius={42} outerRadius={76} paddingAngle={2}>
-                            {(stats?.devices ?? []).map((entry, index) => (
-                              <Cell key={entry.key} fill={palette[index % palette.length]} />
-                            ))}
-                          </Pie>
-                          <Tooltip />
-                        </PieChart>
-                      </ResponsiveContainer>
+                      {deviceData.length === 0 ? (
+                        <EmptyBlock>Sem dispositivos</EmptyBlock>
+                      ) : (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie data={deviceData} dataKey="clicks" nameKey="key" innerRadius={42} outerRadius={76} paddingAngle={2}>
+                              {deviceData.map((entry, index) => (
+                                <Cell key={entry.key} fill={palette[index % palette.length]} />
+                              ))}
+                            </Pie>
+                            <Tooltip />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      )}
                     </ChartBox>
                     <ChartBox title="Países">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={stats?.countries ?? []} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
-                          <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
-                          <XAxis dataKey="key" tick={{ fontSize: 12 }} />
-                          <YAxis allowDecimals={false} tick={{ fontSize: 12 }} width={32} />
-                          <Tooltip />
-                          <Bar dataKey="clicks" fill="#2563eb" radius={[4, 4, 0, 0]} />
-                        </BarChart>
-                      </ResponsiveContainer>
+                      {countryData.length === 0 ? (
+                        <EmptyBlock>Sem paises</EmptyBlock>
+                      ) : (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={countryData} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
+                            <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
+                            <XAxis dataKey="key" tick={{ fontSize: 12 }} />
+                            <YAxis allowDecimals={false} tick={{ fontSize: 12 }} width={32} />
+                            <Tooltip />
+                            <Bar dataKey="clicks" fill="#2563eb" radius={[4, 4, 0, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      )}
                     </ChartBox>
                   </div>
 
                   <div className="mt-4 rounded-md border border-border">
                     <div className="border-b border-border px-3 py-2 text-sm font-semibold text-slate-700">Referrers</div>
-                    {(stats?.top_referrers ?? []).length === 0 ? (
+                    {referrerData.length === 0 ? (
                       <div className="px-3 py-5 text-sm text-muted-foreground">Sem referrer</div>
                     ) : (
                       <div className="divide-y divide-border">
-                        {(stats?.top_referrers ?? []).map((item) => (
+                        {referrerData.map((item) => (
                           <div key={item.referrer ?? "direct"} className="grid grid-cols-[1fr_auto] gap-3 px-3 py-2 text-sm">
                             <span className="min-w-0 break-all text-slate-700">{item.referrer ?? "direto"}</span>
                             <span className="font-medium text-slate-950">{item.clicks}</span>
@@ -532,4 +547,8 @@ function LoadingBlock() {
       <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
     </div>
   );
+}
+
+function EmptyBlock({ children }: { children: ReactNode }) {
+  return <div className="flex h-full items-center justify-center text-sm text-muted-foreground">{children}</div>;
 }

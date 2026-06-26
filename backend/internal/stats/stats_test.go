@@ -1,6 +1,7 @@
 package stats
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -107,5 +108,43 @@ func TestDailyRollupMatchesClickCountFixture(t *testing.T) {
 	}
 	if rollupTotal != got.TotalClicks {
 		t.Fatalf("rollupTotal = %d, TotalClicks = %d", rollupTotal, got.TotalClicks)
+	}
+}
+
+func TestBuildFromFixturesUsesUTCBoundaries(t *testing.T) {
+	now := time.Date(2026, 6, 25, 23, 30, 0, 0, time.UTC)
+	window, err := ResolveWindow(Range7D, now, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	plusTwo := time.FixedZone("UTC+2", 2*60*60)
+	minusThree := time.FixedZone("UTC-3", -3*60*60)
+	clicks := []FixtureClick{
+		// 2026-06-25 22:30 UTC, inside the window's last UTC day.
+		{CreatedAt: time.Date(2026, 6, 26, 0, 30, 0, 0, plusTwo)},
+		// 2026-06-26 01:30 UTC, outside the half-open UTC window.
+		{CreatedAt: time.Date(2026, 6, 25, 22, 30, 0, 0, minusThree)},
+	}
+	daily := []DailyPoint{
+		{Day: time.Date(2026, 6, 25, 0, 0, 0, 0, time.UTC), Clicks: 1},
+	}
+
+	got := BuildFromFixtures(window, daily, clicks, DefaultTopN)
+	if got.TotalClicks != 1 {
+		t.Fatalf("TotalClicks = %d, want 1", got.TotalClicks)
+	}
+	var rollupTotal int64
+	for _, point := range got.Daily {
+		rollupTotal += point.Clicks
+	}
+	if rollupTotal != got.TotalClicks {
+		t.Fatalf("rollupTotal = %d, TotalClicks = %d", rollupTotal, got.TotalClicks)
+	}
+}
+
+func TestFirstStatsDayQueryUsesUTCDay(t *testing.T) {
+	if !strings.Contains(firstStatsDaySQL, "created_at AT TIME ZONE 'UTC'") {
+		t.Fatal("first stats day deve converter created_at para dia UTC")
 	}
 }

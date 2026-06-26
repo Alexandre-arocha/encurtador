@@ -77,11 +77,7 @@ func (w *EnrichWorker) Work(ctx context.Context, job *river.Job[EnrichClickArgs]
 		return nil
 	}
 
-	rawIP, _ := w.rawIPs.Get(job.Args.ClickID)
-	result := enrich.Enriched{}
-	if w.enricher != nil {
-		result = w.enricher.Enrich(enrich.Raw{UARaw: row.UARaw, IP: rawIP})
-	}
+	result := w.enrichRawClick(job.Args.ClickID, row.UARaw)
 
 	updated, err := updateClickEnriched(ctx, tx, job.Args.ClickID, result)
 	if err != nil {
@@ -134,6 +130,17 @@ func updateClickEnriched(ctx context.Context, tx pgx.Tx, clickID uuid.UUID, resu
 	return tag.RowsAffected() == 1, nil
 }
 
+func (w *EnrichWorker) enrichRawClick(clickID uuid.UUID, uaRaw string) enrich.Enriched {
+	if w == nil || w.enricher == nil {
+		return enrich.Enriched{}
+	}
+	rawIP := ""
+	if w.rawIPs != nil {
+		rawIP, _ = w.rawIPs.Get(clickID)
+	}
+	return w.enricher.Enrich(enrich.Raw{UARaw: uaRaw, IP: rawIP})
+}
+
 func emptyToNil(value string) *string {
 	if value == "" {
 		return nil
@@ -162,7 +169,7 @@ WHERE id = $1
 
 const upsertLinkDailySQL = `
 INSERT INTO link_daily (link_id, day, clicks)
-VALUES ($1, $2::date, 1)
+VALUES ($1, ($2 AT TIME ZONE 'UTC')::date, 1)
 ON CONFLICT (link_id, day)
 DO UPDATE SET clicks = link_daily.clicks + 1;
 `

@@ -388,7 +388,7 @@ FROM (
     FROM link_daily
     WHERE link_id = $1
     UNION ALL
-    SELECT min(created_at::date)::date AS day
+    SELECT min((created_at AT TIME ZONE 'UTC')::date)::date AS day
     FROM clicks
     WHERE link_id = $1
 ) bounds;

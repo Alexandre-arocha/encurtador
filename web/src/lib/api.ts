@@ -1,6 +1,6 @@
 import type { CreateLinkInput, LinkItem, LinkStats, ListLinksResponse, StatsRange, UpdateLinkInput } from "./types";
 
-const fallbackBaseURL = "http://localhost:8090";
+const fallbackBaseURL = "http://localhost:8080";
 
 export function defaultBaseURL() {
   return process.env.NEXT_PUBLIC_API_BASE_URL ?? fallbackBaseURL;
