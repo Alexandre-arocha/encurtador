@@ -36,10 +36,7 @@ curl http://localhost:8080/healthz
 
 ## Estrutura
 
-Ver [`CLAUDE.md`](CLAUDE.md) para estrutura de pastas, modelo de dados, API e
-o plano por fases.
 
-## GeoIP
 
 O enriquecimento geográfico usa o **MaxMind GeoLite2-City** (`.mmdb`). O arquivo
 **não** é versionado nem baixado automaticamente — baixe manualmente e aponte
