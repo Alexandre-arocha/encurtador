@@ -6,6 +6,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+Add-Type -AssemblyName System.Net.Http
+
 function Write-Step([string]$Message) {
     Write-Host "==> $Message"
 }
