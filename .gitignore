@@ -17,6 +17,7 @@
 /web/.next/
 /web/out/
 /web/.env.local
+/web/tsconfig.tsbuildinfo
 
 # Editores / OS
 .DS_Store

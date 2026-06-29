@@ -12,14 +12,17 @@ import (
 )
 
 type statsResponse struct {
-	Range        string                  `json:"range"`
-	StartDay     string                  `json:"start_day"`
-	EndDay       string                  `json:"end_day"`
-	TotalClicks  int64                   `json:"total_clicks"`
-	Daily        []dailyPointResponse    `json:"daily"`
-	TopReferrers []referrerPointResponse `json:"top_referrers"`
-	Devices      []breakdownResponse     `json:"devices"`
-	Countries    []breakdownResponse     `json:"countries"`
+	Range            string                  `json:"range"`
+	StartDay         string                  `json:"start_day"`
+	EndDay           string                  `json:"end_day"`
+	TotalClicks      int64                   `json:"total_clicks"`
+	Daily            []dailyPointResponse    `json:"daily"`
+	TopReferrers     []referrerPointResponse `json:"top_referrers"`
+	Devices          []breakdownResponse     `json:"devices"`
+	Countries        []breakdownResponse     `json:"countries"`
+	Browsers         []breakdownResponse     `json:"browsers"`
+	OperatingSystems []breakdownResponse     `json:"operating_systems"`
+	Cities           []breakdownResponse     `json:"cities"`
 }
 
 type dailyPointResponse struct {
@@ -74,14 +77,17 @@ func (s *Server) handleGetLinkStats(c *gin.Context) {
 
 func toStatsResponse(result stats.Result) statsResponse {
 	resp := statsResponse{
-		Range:        string(result.Range),
-		StartDay:     result.StartDay.Format(time.DateOnly),
-		EndDay:       result.EndDay.Format(time.DateOnly),
-		TotalClicks:  result.TotalClicks,
-		Daily:        make([]dailyPointResponse, 0, len(result.Daily)),
-		TopReferrers: make([]referrerPointResponse, 0, len(result.TopReferrers)),
-		Devices:      make([]breakdownResponse, 0, len(result.Devices)),
-		Countries:    make([]breakdownResponse, 0, len(result.Countries)),
+		Range:            string(result.Range),
+		StartDay:         result.StartDay.Format(time.DateOnly),
+		EndDay:           result.EndDay.Format(time.DateOnly),
+		TotalClicks:      result.TotalClicks,
+		Daily:            make([]dailyPointResponse, 0, len(result.Daily)),
+		TopReferrers:     make([]referrerPointResponse, 0, len(result.TopReferrers)),
+		Devices:          make([]breakdownResponse, 0, len(result.Devices)),
+		Countries:        make([]breakdownResponse, 0, len(result.Countries)),
+		Browsers:         make([]breakdownResponse, 0, len(result.Browsers)),
+		OperatingSystems: make([]breakdownResponse, 0, len(result.OperatingSystems)),
+		Cities:           make([]breakdownResponse, 0, len(result.Cities)),
 	}
 	for _, point := range result.Daily {
 		resp.Daily = append(resp.Daily, dailyPointResponse{
@@ -100,6 +106,15 @@ func toStatsResponse(result stats.Result) statsResponse {
 	}
 	for _, point := range result.Countries {
 		resp.Countries = append(resp.Countries, breakdownResponse(point))
+	}
+	for _, point := range result.Browsers {
+		resp.Browsers = append(resp.Browsers, breakdownResponse(point))
+	}
+	for _, point := range result.OperatingSystems {
+		resp.OperatingSystems = append(resp.OperatingSystems, breakdownResponse(point))
+	}
+	for _, point := range result.Cities {
+		resp.Cities = append(resp.Cities, breakdownResponse(point))
 	}
 	return resp
 }

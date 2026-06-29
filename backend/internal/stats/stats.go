@@ -103,14 +103,17 @@ type BreakdownPoint struct {
 
 // Result e a resposta agregada esperada pelo endpoint de stats.
 type Result struct {
-	Range        Range            `json:"range"`
-	StartDay     time.Time        `json:"start_day"`
-	EndDay       time.Time        `json:"end_day"`
-	TotalClicks  int64            `json:"total_clicks"`
-	Daily        []DailyPoint     `json:"daily"`
-	TopReferrers []ReferrerPoint  `json:"top_referrers"`
-	Devices      []BreakdownPoint `json:"devices"`
-	Countries    []BreakdownPoint `json:"countries"`
+	Range            Range            `json:"range"`
+	StartDay         time.Time        `json:"start_day"`
+	EndDay           time.Time        `json:"end_day"`
+	TotalClicks      int64            `json:"total_clicks"`
+	Daily            []DailyPoint     `json:"daily"`
+	TopReferrers     []ReferrerPoint  `json:"top_referrers"`
+	Devices          []BreakdownPoint `json:"devices"`
+	Countries        []BreakdownPoint `json:"countries"`
+	Browsers         []BreakdownPoint `json:"browsers"`
+	OperatingSystems []BreakdownPoint `json:"operating_systems"`
+	Cities           []BreakdownPoint `json:"cities"`
 }
 
 // FixtureClick permite validar as regras de agregacao sem subir Postgres.
@@ -118,7 +121,10 @@ type FixtureClick struct {
 	CreatedAt  time.Time
 	Referrer   *string
 	DeviceType string
+	Browser    string
+	OS         string
 	Country    string
+	City       string
 }
 
 // BuildFromFixtures agrega fixtures deterministicas de clicks e link_daily.
@@ -128,13 +134,16 @@ func BuildFromFixtures(window Window, daily []DailyPoint, clicks []FixtureClick,
 	}
 
 	result := Result{
-		Range:        window.Range,
-		StartDay:     window.StartDay,
-		EndDay:       window.EndDay,
-		Daily:        normalizeDaily(window, daily),
-		TopReferrers: topReferrersFromClicks(window, clicks, topN),
-		Devices:      breakdownFromClicks(window, clicks, func(c FixtureClick) string { return c.DeviceType }),
-		Countries:    breakdownFromClicks(window, clicks, func(c FixtureClick) string { return c.Country }),
+		Range:            window.Range,
+		StartDay:         window.StartDay,
+		EndDay:           window.EndDay,
+		Daily:            normalizeDaily(window, daily),
+		TopReferrers:     topReferrersFromClicks(window, clicks, topN),
+		Devices:          breakdownFromClicks(window, clicks, func(c FixtureClick) string { return c.DeviceType }),
+		Countries:        breakdownFromClicks(window, clicks, func(c FixtureClick) string { return c.Country }),
+		Browsers:         breakdownFromClicks(window, clicks, func(c FixtureClick) string { return c.Browser }),
+		OperatingSystems: breakdownFromClicks(window, clicks, func(c FixtureClick) string { return c.OS }),
+		Cities:           breakdownFromClicks(window, clicks, func(c FixtureClick) string { return c.City }),
 	}
 	for _, click := range clicks {
 		if inWindow(click.CreatedAt, window) {
@@ -282,20 +291,35 @@ func (r *Repository) Get(ctx context.Context, linkID uuid.UUID, rangeValue Range
 	if err != nil {
 		return Result{}, err
 	}
+	browsers, err := r.breakdown(ctx, browserBreakdownSQL, linkID, window)
+	if err != nil {
+		return Result{}, err
+	}
+	operatingSystems, err := r.breakdown(ctx, osBreakdownSQL, linkID, window)
+	if err != nil {
+		return Result{}, err
+	}
+	cities, err := r.breakdown(ctx, cityBreakdownSQL, linkID, window)
+	if err != nil {
+		return Result{}, err
+	}
 	totalClicks, err := r.totalClicks(ctx, linkID, window)
 	if err != nil {
 		return Result{}, err
 	}
 
 	return Result{
-		Range:        window.Range,
-		StartDay:     window.StartDay,
-		EndDay:       window.EndDay,
-		TotalClicks:  totalClicks,
-		Daily:        daily,
-		TopReferrers: topReferrers,
-		Devices:      devices,
-		Countries:    countries,
+		Range:            window.Range,
+		StartDay:         window.StartDay,
+		EndDay:           window.EndDay,
+		TotalClicks:      totalClicks,
+		Daily:            daily,
+		TopReferrers:     topReferrers,
+		Devices:          devices,
+		Countries:        countries,
+		Browsers:         browsers,
+		OperatingSystems: operatingSystems,
+		Cities:           cities,
 	}, nil
 }
 
@@ -429,6 +453,36 @@ ORDER BY clicks DESC, key ASC;
 
 const countryBreakdownSQL = `
 SELECT COALESCE(NULLIF(country, ''), 'unknown') AS key, count(*)::bigint AS clicks
+FROM clicks
+WHERE link_id = $1
+  AND created_at >= $2
+  AND created_at < $3
+GROUP BY key
+ORDER BY clicks DESC, key ASC;
+`
+
+const browserBreakdownSQL = `
+SELECT COALESCE(NULLIF(browser, ''), 'unknown') AS key, count(*)::bigint AS clicks
+FROM clicks
+WHERE link_id = $1
+  AND created_at >= $2
+  AND created_at < $3
+GROUP BY key
+ORDER BY clicks DESC, key ASC;
+`
+
+const osBreakdownSQL = `
+SELECT COALESCE(NULLIF(os, ''), 'unknown') AS key, count(*)::bigint AS clicks
+FROM clicks
+WHERE link_id = $1
+  AND created_at >= $2
+  AND created_at < $3
+GROUP BY key
+ORDER BY clicks DESC, key ASC;
+`
+
+const cityBreakdownSQL = `
+SELECT COALESCE(NULLIF(city, ''), 'unknown') AS key, count(*)::bigint AS clicks
 FROM clicks
 WHERE link_id = $1
   AND created_at >= $2

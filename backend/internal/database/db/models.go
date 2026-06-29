@@ -27,13 +27,22 @@ type Click struct {
 }
 
 type Link struct {
-	ID        uuid.UUID  `json:"id"`
-	Slug      string     `json:"slug"`
-	TargetUrl string     `json:"target_url"`
-	Title     *string    `json:"title"`
-	CreatedAt time.Time  `json:"created_at"`
-	ExpiresAt *time.Time `json:"expires_at"`
-	IsActive  bool       `json:"is_active"`
+	ID          uuid.UUID  `json:"id"`
+	Slug        string     `json:"slug"`
+	TargetUrl   string     `json:"target_url"`
+	Title       *string    `json:"title"`
+	CreatedAt   time.Time  `json:"created_at"`
+	ExpiresAt   *time.Time `json:"expires_at"`
+	IsActive    bool       `json:"is_active"`
+	Campaign    *string    `json:"campaign"`
+	Tags        []string   `json:"tags"`
+	UtmSource   *string    `json:"utm_source"`
+	UtmMedium   *string    `json:"utm_medium"`
+	UtmCampaign *string    `json:"utm_campaign"`
+	UtmTerm     *string    `json:"utm_term"`
+	UtmContent  *string    `json:"utm_content"`
+	Notes       *string    `json:"notes"`
+	UpdatedAt   time.Time  `json:"updated_at"`
 }
 
 type LinkDaily struct {

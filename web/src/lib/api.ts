@@ -1,4 +1,4 @@
-import type { CreateLinkInput, LinkItem, LinkStats, ListLinksResponse, StatsRange, UpdateLinkInput } from "./types";
+import type { CreateLinkInput, LinkFilters, LinkItem, LinkStats, ListLinksResponse, StatsRange, UpdateLinkInput } from "./types";
 
 const fallbackBaseURL = "http://localhost:8080";
 
@@ -16,8 +16,8 @@ export class APIClient {
     private readonly apiKey: string,
   ) {}
 
-  async listLinks() {
-    return this.request<ListLinksResponse>("/api/links");
+  async listLinks(filters: LinkFilters = {}) {
+    return this.request<ListLinksResponse>(`/api/links${queryString(filters)}`);
   }
 
   async createLink(input: CreateLinkInput) {
@@ -36,6 +36,26 @@ export class APIClient {
 
   async deleteLink(id: string) {
     await this.request<void>(`/api/links/${id}`, { method: "DELETE" });
+  }
+
+  async exportLinksCSV(filters: LinkFilters = {}) {
+    const response = await fetch(`${this.baseURL}/api/links/export.csv${queryString(filters)}`, {
+      headers: {
+        "X-API-Key": this.apiKey,
+      },
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      let message = "Erro ao exportar CSV";
+      try {
+        const data = text ? JSON.parse(text) : null;
+        message = data?.error?.message ?? message;
+      } catch {
+        if (text) message = text;
+      }
+      throw new Error(message);
+    }
+    return response.blob();
   }
 
   async getStats(id: string, range: StatsRange) {
@@ -64,4 +84,14 @@ export class APIClient {
     }
     return data as T;
   }
+}
+
+function queryString(filters: LinkFilters) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value === undefined || value === null || value === "") continue;
+    params.set(key, String(value));
+  }
+  const query = params.toString();
+  return query ? `?${query}` : "";
 }

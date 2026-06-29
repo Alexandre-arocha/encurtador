@@ -49,11 +49,11 @@ func TestBuildFromFixturesAggregatesAndPreservesDailyGaps(t *testing.T) {
 	refGoogle := "https://google.com"
 	refDocs := "https://docs.example"
 	clicks := []FixtureClick{
-		{CreatedAt: time.Date(2026, 6, 23, 9, 0, 0, 0, time.UTC), Referrer: &refGoogle, DeviceType: "desktop", Country: "BR"},
-		{CreatedAt: time.Date(2026, 6, 23, 10, 0, 0, 0, time.UTC), Referrer: &refGoogle, DeviceType: "mobile", Country: "BR"},
-		{CreatedAt: time.Date(2026, 6, 24, 11, 0, 0, 0, time.UTC), Referrer: &refDocs, DeviceType: "desktop", Country: "US"},
-		{CreatedAt: time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC), DeviceType: "", Country: ""},
-		{CreatedAt: time.Date(2026, 6, 20, 12, 0, 0, 0, time.UTC), Referrer: &refGoogle, DeviceType: "bot", Country: "BR"},
+		{CreatedAt: time.Date(2026, 6, 23, 9, 0, 0, 0, time.UTC), Referrer: &refGoogle, DeviceType: "desktop", Browser: "Chrome", OS: "Windows", Country: "BR", City: "Sao Paulo"},
+		{CreatedAt: time.Date(2026, 6, 23, 10, 0, 0, 0, time.UTC), Referrer: &refGoogle, DeviceType: "mobile", Browser: "Safari", OS: "iOS", Country: "BR", City: "Rio"},
+		{CreatedAt: time.Date(2026, 6, 24, 11, 0, 0, 0, time.UTC), Referrer: &refDocs, DeviceType: "desktop", Browser: "Chrome", OS: "Windows", Country: "US", City: "Austin"},
+		{CreatedAt: time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC), DeviceType: "", Browser: "", OS: "", Country: "", City: ""},
+		{CreatedAt: time.Date(2026, 6, 20, 12, 0, 0, 0, time.UTC), Referrer: &refGoogle, DeviceType: "bot", Browser: "Googlebot", OS: "unknown", Country: "BR", City: "Sao Paulo"},
 	}
 	daily := []DailyPoint{
 		{Day: time.Date(2026, 6, 23, 0, 0, 0, 0, time.UTC), Clicks: 2},
@@ -79,6 +79,15 @@ func TestBuildFromFixturesAggregatesAndPreservesDailyGaps(t *testing.T) {
 	}
 	if got.Countries[0] != (BreakdownPoint{Key: "BR", Clicks: 2}) {
 		t.Fatalf("countries[0] = %#v, want BR 2", got.Countries[0])
+	}
+	if got.Browsers[0] != (BreakdownPoint{Key: "Chrome", Clicks: 2}) {
+		t.Fatalf("browsers[0] = %#v, want Chrome 2", got.Browsers[0])
+	}
+	if got.OperatingSystems[0] != (BreakdownPoint{Key: "Windows", Clicks: 2}) {
+		t.Fatalf("operating systems[0] = %#v, want Windows 2", got.OperatingSystems[0])
+	}
+	if got.Cities[0] != (BreakdownPoint{Key: "Austin", Clicks: 1}) {
+		t.Fatalf("cities[0] = %#v, want Austin 1 por desempate alfabetico", got.Cities[0])
 	}
 }
 

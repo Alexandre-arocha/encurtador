@@ -13,29 +13,81 @@ import (
 )
 
 const countLinks = `-- name: CountLinks :one
-SELECT count(*) FROM links
+SELECT count(*)::bigint
+FROM links l
+WHERE (
+        $1::text = ''
+        OR l.slug ILIKE '%' || $1 || '%'
+        OR l.target_url ILIKE '%' || $1 || '%'
+        OR COALESCE(l.title, '') ILIKE '%' || $1 || '%'
+        OR COALESCE(l.campaign, '') ILIKE '%' || $1 || '%'
+        OR array_to_string(l.tags, ' ') ILIKE '%' || $1 || '%'
+    )
+  AND (
+        $2::text = ''
+        OR ($2 = 'active' AND l.is_active = true AND (l.expires_at IS NULL OR l.expires_at > now()))
+        OR ($2 = 'inactive' AND l.is_active = false)
+        OR ($2 = 'expired' AND l.is_active = true AND l.expires_at IS NOT NULL AND l.expires_at <= now())
+    )
+  AND ($3::text = '' OR $3 = ANY(l.tags))
+  AND ($4::text = '' OR l.campaign = $4)
 `
 
-func (q *Queries) CountLinks(ctx context.Context) (int64, error) {
-	row := q.db.QueryRow(ctx, countLinks)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
+type CountLinksParams struct {
+	Q        string `json:"q"`
+	Status   string `json:"status"`
+	Tag      string `json:"tag"`
+	Campaign string `json:"campaign"`
+}
+
+func (q *Queries) CountLinks(ctx context.Context, arg CountLinksParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countLinks,
+		arg.Q,
+		arg.Status,
+		arg.Tag,
+		arg.Campaign,
+	)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const createLink = `-- name: CreateLink :one
-INSERT INTO links (id, slug, target_url, title, expires_at, is_active)
-VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, slug, target_url, title, created_at, expires_at, is_active
+INSERT INTO links (
+    id,
+    slug,
+    target_url,
+    title,
+    expires_at,
+    is_active,
+    campaign,
+    tags,
+    utm_source,
+    utm_medium,
+    utm_campaign,
+    utm_term,
+    utm_content,
+    notes
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+RETURNING id, slug, target_url, title, created_at, expires_at, is_active, campaign, tags, utm_source, utm_medium, utm_campaign, utm_term, utm_content, notes, updated_at
 `
 
 type CreateLinkParams struct {
-	ID        uuid.UUID  `json:"id"`
-	Slug      string     `json:"slug"`
-	TargetUrl string     `json:"target_url"`
-	Title     *string    `json:"title"`
-	ExpiresAt *time.Time `json:"expires_at"`
-	IsActive  bool       `json:"is_active"`
+	ID          uuid.UUID  `json:"id"`
+	Slug        string     `json:"slug"`
+	TargetUrl   string     `json:"target_url"`
+	Title       *string    `json:"title"`
+	ExpiresAt   *time.Time `json:"expires_at"`
+	IsActive    bool       `json:"is_active"`
+	Campaign    *string    `json:"campaign"`
+	Tags        []string   `json:"tags"`
+	UtmSource   *string    `json:"utm_source"`
+	UtmMedium   *string    `json:"utm_medium"`
+	UtmCampaign *string    `json:"utm_campaign"`
+	UtmTerm     *string    `json:"utm_term"`
+	UtmContent  *string    `json:"utm_content"`
+	Notes       *string    `json:"notes"`
 }
 
 func (q *Queries) CreateLink(ctx context.Context, arg CreateLinkParams) (Link, error) {
@@ -46,6 +98,14 @@ func (q *Queries) CreateLink(ctx context.Context, arg CreateLinkParams) (Link, e
 		arg.Title,
 		arg.ExpiresAt,
 		arg.IsActive,
+		arg.Campaign,
+		arg.Tags,
+		arg.UtmSource,
+		arg.UtmMedium,
+		arg.UtmCampaign,
+		arg.UtmTerm,
+		arg.UtmContent,
+		arg.Notes,
 	)
 	var i Link
 	err := row.Scan(
@@ -56,6 +116,15 @@ func (q *Queries) CreateLink(ctx context.Context, arg CreateLinkParams) (Link, e
 		&i.CreatedAt,
 		&i.ExpiresAt,
 		&i.IsActive,
+		&i.Campaign,
+		&i.Tags,
+		&i.UtmSource,
+		&i.UtmMedium,
+		&i.UtmCampaign,
+		&i.UtmTerm,
+		&i.UtmContent,
+		&i.Notes,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
@@ -73,7 +142,7 @@ func (q *Queries) DeleteLink(ctx context.Context, id uuid.UUID) (int64, error) {
 }
 
 const getLinkByID = `-- name: GetLinkByID :one
-SELECT id, slug, target_url, title, created_at, expires_at, is_active FROM links WHERE id = $1
+SELECT id, slug, target_url, title, created_at, expires_at, is_active, campaign, tags, utm_source, utm_medium, utm_campaign, utm_term, utm_content, notes, updated_at FROM links WHERE id = $1
 `
 
 func (q *Queries) GetLinkByID(ctx context.Context, id uuid.UUID) (Link, error) {
@@ -87,12 +156,21 @@ func (q *Queries) GetLinkByID(ctx context.Context, id uuid.UUID) (Link, error) {
 		&i.CreatedAt,
 		&i.ExpiresAt,
 		&i.IsActive,
+		&i.Campaign,
+		&i.Tags,
+		&i.UtmSource,
+		&i.UtmMedium,
+		&i.UtmCampaign,
+		&i.UtmTerm,
+		&i.UtmContent,
+		&i.Notes,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
 
 const getLinkBySlug = `-- name: GetLinkBySlug :one
-SELECT id, slug, target_url, title, created_at, expires_at, is_active FROM links WHERE slug = $1
+SELECT id, slug, target_url, title, created_at, expires_at, is_active, campaign, tags, utm_source, utm_medium, utm_campaign, utm_term, utm_content, notes, updated_at FROM links WHERE slug = $1
 `
 
 func (q *Queries) GetLinkBySlug(ctx context.Context, slug string) (Link, error) {
@@ -106,30 +184,103 @@ func (q *Queries) GetLinkBySlug(ctx context.Context, slug string) (Link, error) 
 		&i.CreatedAt,
 		&i.ExpiresAt,
 		&i.IsActive,
+		&i.Campaign,
+		&i.Tags,
+		&i.UtmSource,
+		&i.UtmMedium,
+		&i.UtmCampaign,
+		&i.UtmTerm,
+		&i.UtmContent,
+		&i.Notes,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
 
 const listLinks = `-- name: ListLinks :many
-SELECT id, slug, target_url, title, created_at, expires_at, is_active FROM links
-ORDER BY created_at DESC
-LIMIT $1 OFFSET $2
+SELECT
+    l.id, l.slug, l.target_url, l.title, l.created_at, l.expires_at, l.is_active, l.campaign, l.tags, l.utm_source, l.utm_medium, l.utm_campaign, l.utm_term, l.utm_content, l.notes, l.updated_at,
+    COALESCE(ld.total_clicks, 0)::bigint AS total_clicks,
+    COALESCE(lc.last_clicked_at, '1970-01-01 00:00:00+00'::timestamptz) AS last_clicked_at,
+    (lc.last_clicked_at IS NOT NULL)::boolean AS has_last_clicked_at
+FROM links l
+LEFT JOIN (
+    SELECT link_id, sum(clicks)::bigint AS total_clicks
+    FROM link_daily
+    GROUP BY link_id
+) ld ON ld.link_id = l.id
+LEFT JOIN (
+    SELECT link_id, max(created_at)::timestamptz AS last_clicked_at
+    FROM clicks
+    GROUP BY link_id
+) lc ON lc.link_id = l.id
+WHERE (
+        $1::text = ''
+        OR l.slug ILIKE '%' || $1 || '%'
+        OR l.target_url ILIKE '%' || $1 || '%'
+        OR COALESCE(l.title, '') ILIKE '%' || $1 || '%'
+        OR COALESCE(l.campaign, '') ILIKE '%' || $1 || '%'
+        OR array_to_string(l.tags, ' ') ILIKE '%' || $1 || '%'
+    )
+  AND (
+        $2::text = ''
+        OR ($2 = 'active' AND l.is_active = true AND (l.expires_at IS NULL OR l.expires_at > now()))
+        OR ($2 = 'inactive' AND l.is_active = false)
+        OR ($2 = 'expired' AND l.is_active = true AND l.expires_at IS NOT NULL AND l.expires_at <= now())
+    )
+  AND ($3::text = '' OR $3 = ANY(l.tags))
+  AND ($4::text = '' OR l.campaign = $4)
+ORDER BY l.created_at DESC
+LIMIT $6 OFFSET $5
 `
 
 type ListLinksParams struct {
-	Limit  int32 `json:"limit"`
-	Offset int32 `json:"offset"`
+	Q        string `json:"q"`
+	Status   string `json:"status"`
+	Tag      string `json:"tag"`
+	Campaign string `json:"campaign"`
+	Offset   int32  `json:"offset"`
+	Limit    int32  `json:"limit"`
 }
 
-func (q *Queries) ListLinks(ctx context.Context, arg ListLinksParams) ([]Link, error) {
-	rows, err := q.db.Query(ctx, listLinks, arg.Limit, arg.Offset)
+type ListLinksRow struct {
+	ID               uuid.UUID  `json:"id"`
+	Slug             string     `json:"slug"`
+	TargetUrl        string     `json:"target_url"`
+	Title            *string    `json:"title"`
+	CreatedAt        time.Time  `json:"created_at"`
+	ExpiresAt        *time.Time `json:"expires_at"`
+	IsActive         bool       `json:"is_active"`
+	Campaign         *string    `json:"campaign"`
+	Tags             []string   `json:"tags"`
+	UtmSource        *string    `json:"utm_source"`
+	UtmMedium        *string    `json:"utm_medium"`
+	UtmCampaign      *string    `json:"utm_campaign"`
+	UtmTerm          *string    `json:"utm_term"`
+	UtmContent       *string    `json:"utm_content"`
+	Notes            *string    `json:"notes"`
+	UpdatedAt        time.Time  `json:"updated_at"`
+	TotalClicks      int64      `json:"total_clicks"`
+	LastClickedAt    time.Time  `json:"last_clicked_at"`
+	HasLastClickedAt bool       `json:"has_last_clicked_at"`
+}
+
+func (q *Queries) ListLinks(ctx context.Context, arg ListLinksParams) ([]ListLinksRow, error) {
+	rows, err := q.db.Query(ctx, listLinks,
+		arg.Q,
+		arg.Status,
+		arg.Tag,
+		arg.Campaign,
+		arg.Offset,
+		arg.Limit,
+	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Link{}
+	items := []ListLinksRow{}
 	for rows.Next() {
-		var i Link
+		var i ListLinksRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Slug,
@@ -138,6 +289,18 @@ func (q *Queries) ListLinks(ctx context.Context, arg ListLinksParams) ([]Link, e
 			&i.CreatedAt,
 			&i.ExpiresAt,
 			&i.IsActive,
+			&i.Campaign,
+			&i.Tags,
+			&i.UtmSource,
+			&i.UtmMedium,
+			&i.UtmCampaign,
+			&i.UtmTerm,
+			&i.UtmContent,
+			&i.Notes,
+			&i.UpdatedAt,
+			&i.TotalClicks,
+			&i.LastClickedAt,
+			&i.HasLastClickedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -162,20 +325,37 @@ func (q *Queries) SlugExists(ctx context.Context, slug string) (bool, error) {
 
 const updateLink = `-- name: UpdateLink :one
 UPDATE links
-SET target_url = $2,
-    title      = $3,
-    expires_at = $4,
-    is_active  = $5
+SET target_url   = $2,
+    title        = $3,
+    expires_at   = $4,
+    is_active    = $5,
+    campaign     = $6,
+    tags         = $7,
+    utm_source   = $8,
+    utm_medium   = $9,
+    utm_campaign = $10,
+    utm_term     = $11,
+    utm_content  = $12,
+    notes        = $13,
+    updated_at   = now()
 WHERE id = $1
-RETURNING id, slug, target_url, title, created_at, expires_at, is_active
+RETURNING id, slug, target_url, title, created_at, expires_at, is_active, campaign, tags, utm_source, utm_medium, utm_campaign, utm_term, utm_content, notes, updated_at
 `
 
 type UpdateLinkParams struct {
-	ID        uuid.UUID  `json:"id"`
-	TargetUrl string     `json:"target_url"`
-	Title     *string    `json:"title"`
-	ExpiresAt *time.Time `json:"expires_at"`
-	IsActive  bool       `json:"is_active"`
+	ID          uuid.UUID  `json:"id"`
+	TargetUrl   string     `json:"target_url"`
+	Title       *string    `json:"title"`
+	ExpiresAt   *time.Time `json:"expires_at"`
+	IsActive    bool       `json:"is_active"`
+	Campaign    *string    `json:"campaign"`
+	Tags        []string   `json:"tags"`
+	UtmSource   *string    `json:"utm_source"`
+	UtmMedium   *string    `json:"utm_medium"`
+	UtmCampaign *string    `json:"utm_campaign"`
+	UtmTerm     *string    `json:"utm_term"`
+	UtmContent  *string    `json:"utm_content"`
+	Notes       *string    `json:"notes"`
 }
 
 func (q *Queries) UpdateLink(ctx context.Context, arg UpdateLinkParams) (Link, error) {
@@ -185,6 +365,14 @@ func (q *Queries) UpdateLink(ctx context.Context, arg UpdateLinkParams) (Link, e
 		arg.Title,
 		arg.ExpiresAt,
 		arg.IsActive,
+		arg.Campaign,
+		arg.Tags,
+		arg.UtmSource,
+		arg.UtmMedium,
+		arg.UtmCampaign,
+		arg.UtmTerm,
+		arg.UtmContent,
+		arg.Notes,
 	)
 	var i Link
 	err := row.Scan(
@@ -195,6 +383,15 @@ func (q *Queries) UpdateLink(ctx context.Context, arg UpdateLinkParams) (Link, e
 		&i.CreatedAt,
 		&i.ExpiresAt,
 		&i.IsActive,
+		&i.Campaign,
+		&i.Tags,
+		&i.UtmSource,
+		&i.UtmMedium,
+		&i.UtmCampaign,
+		&i.UtmTerm,
+		&i.UtmContent,
+		&i.Notes,
+		&i.UpdatedAt,
 	)
 	return i, err
 }

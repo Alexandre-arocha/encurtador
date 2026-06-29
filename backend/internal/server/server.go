@@ -61,6 +61,7 @@ func (s *Server) registerRoutes() {
 	{
 		api.POST("/links", s.handleCreateLink)
 		api.GET("/links", s.handleListLinks)
+		api.GET("/links/export.csv", s.handleExportLinksCSV)
 		api.GET("/links/:id/stats", s.handleGetLinkStats)
 		api.GET("/links/:id", s.handleGetLink)
 		api.PATCH("/links/:id", s.handlePatchLink)

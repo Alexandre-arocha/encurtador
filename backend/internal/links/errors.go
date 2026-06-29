@@ -10,5 +10,7 @@ var (
 	ErrInvalidSlug   = errors.New("slug inválido")
 	ErrReservedSlug  = errors.New("slug reservado")
 	ErrInvalidURL    = errors.New("URL de destino inválida")
+	ErrInvalidTags   = errors.New("tags inválidas")
+	ErrInvalidStatus = errors.New("status inválido")
 	ErrSlugGenFailed = errors.New("não foi possível gerar um slug único")
 )

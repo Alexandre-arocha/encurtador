@@ -6,6 +6,8 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"regexp"
+	"strings"
 	"time"
 
 	"encurtador/internal/database/db"
@@ -15,6 +17,17 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+const (
+	StatusActive   = "active"
+	StatusInactive = "inactive"
+	StatusExpired  = "expired"
+
+	MaxTags      = 10
+	MaxTagLength = 32
+)
+
+var tagPattern = regexp.MustCompile(`^[a-z0-9_-]+$`)
 
 // Service implementa as operações de domínio sobre links.
 type Service struct {
@@ -29,10 +42,25 @@ func NewService(pool *pgxpool.Pool, logger *slog.Logger) *Service {
 
 // CreateInput reúne os dados para criação de um link.
 type CreateInput struct {
-	TargetURL  string
-	CustomSlug string // opcional; vazio = gerar base62
-	Title      *string
-	ExpiresAt  *time.Time
+	TargetURL   string
+	CustomSlug  string // opcional; vazio = gerar base62
+	Title       *string
+	ExpiresAt   *time.Time
+	Campaign    *string
+	Tags        []string
+	UtmSource   *string
+	UtmMedium   *string
+	UtmCampaign *string
+	UtmTerm     *string
+	UtmContent  *string
+	Notes       *string
+}
+
+// LinkWithStats representa um link com métricas derivadas para listagem/export.
+type LinkWithStats struct {
+	Link          db.Link
+	TotalClicks   int64
+	LastClickedAt *time.Time
 }
 
 // Create valida e persiste um novo link. Com slug customizado, colisão retorna
@@ -41,6 +69,18 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (db.Link, error) {
 	if err := ValidateTargetURL(in.TargetURL); err != nil {
 		return db.Link{}, err
 	}
+	tags, err := NormalizeTags(in.Tags)
+	if err != nil {
+		return db.Link{}, err
+	}
+	in.Tags = tags
+	in.Campaign = cleanOptional(in.Campaign)
+	in.UtmSource = cleanOptional(in.UtmSource)
+	in.UtmMedium = cleanOptional(in.UtmMedium)
+	in.UtmCampaign = cleanOptional(in.UtmCampaign)
+	in.UtmTerm = cleanOptional(in.UtmTerm)
+	in.UtmContent = cleanOptional(in.UtmContent)
+	in.Notes = cleanOptional(in.Notes)
 
 	if in.CustomSlug != "" {
 		if err := ValidateSlugFormat(in.CustomSlug); err != nil {
@@ -77,12 +117,20 @@ func (s *Service) createWithSlug(ctx context.Context, slug string, in CreateInpu
 		return db.Link{}, err
 	}
 	return s.q.CreateLink(ctx, db.CreateLinkParams{
-		ID:        id,
-		Slug:      slug,
-		TargetUrl: in.TargetURL,
-		Title:     in.Title,
-		ExpiresAt: in.ExpiresAt,
-		IsActive:  true,
+		ID:          id,
+		Slug:        slug,
+		TargetUrl:   in.TargetURL,
+		Title:       cleanOptional(in.Title),
+		ExpiresAt:   in.ExpiresAt,
+		IsActive:    true,
+		Campaign:    in.Campaign,
+		Tags:        in.Tags,
+		UtmSource:   in.UtmSource,
+		UtmMedium:   in.UtmMedium,
+		UtmCampaign: in.UtmCampaign,
+		UtmTerm:     in.UtmTerm,
+		UtmContent:  in.UtmContent,
+		Notes:       in.Notes,
 	})
 }
 
@@ -104,32 +152,112 @@ func (s *Service) GetBySlug(ctx context.Context, slug string) (db.Link, error) {
 	return link, err
 }
 
-// ListInput controla a paginação da listagem.
+// ListInput controla a paginação e os filtros da listagem.
 type ListInput struct {
-	Limit  int32
-	Offset int32
+	Limit    int32
+	Offset   int32
+	Q        string
+	Status   string
+	Tag      string
+	Campaign string
 }
 
-// List retorna uma página de links e o total geral.
-func (s *Service) List(ctx context.Context, in ListInput) ([]db.Link, int64, error) {
-	links, err := s.q.ListLinks(ctx, db.ListLinksParams{Limit: in.Limit, Offset: in.Offset})
+// List retorna uma página de links, métricas derivadas e o total filtrado.
+func (s *Service) List(ctx context.Context, in ListInput) ([]LinkWithStats, int64, error) {
+	params, err := listParams(in)
 	if err != nil {
 		return nil, 0, err
 	}
-	total, err := s.q.CountLinks(ctx)
+	rows, err := s.q.ListLinks(ctx, params)
 	if err != nil {
 		return nil, 0, err
 	}
-	return links, total, nil
+	total, err := s.q.CountLinks(ctx, db.CountLinksParams{
+		Q:        params.Q,
+		Status:   params.Status,
+		Tag:      params.Tag,
+		Campaign: params.Campaign,
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+
+	items := make([]LinkWithStats, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, rowToLinkWithStats(row))
+	}
+	return items, total, nil
+}
+
+func listParams(in ListInput) (db.ListLinksParams, error) {
+	status := strings.TrimSpace(strings.ToLower(in.Status))
+	switch status {
+	case "", StatusActive, StatusInactive, StatusExpired:
+	default:
+		return db.ListLinksParams{}, ErrInvalidStatus
+	}
+
+	tag := strings.TrimSpace(in.Tag)
+	if tag != "" {
+		normalized, err := NormalizeTags([]string{tag})
+		if err != nil || len(normalized) != 1 {
+			return db.ListLinksParams{}, ErrInvalidTags
+		}
+		tag = normalized[0]
+	}
+
+	return db.ListLinksParams{
+		Q:        strings.TrimSpace(in.Q),
+		Status:   status,
+		Tag:      tag,
+		Campaign: strings.TrimSpace(in.Campaign),
+		Limit:    in.Limit,
+		Offset:   in.Offset,
+	}, nil
+}
+
+func rowToLinkWithStats(row db.ListLinksRow) LinkWithStats {
+	link := db.Link{
+		ID:          row.ID,
+		Slug:        row.Slug,
+		TargetUrl:   row.TargetUrl,
+		Title:       row.Title,
+		CreatedAt:   row.CreatedAt,
+		ExpiresAt:   row.ExpiresAt,
+		IsActive:    row.IsActive,
+		Campaign:    row.Campaign,
+		Tags:        row.Tags,
+		UtmSource:   row.UtmSource,
+		UtmMedium:   row.UtmMedium,
+		UtmCampaign: row.UtmCampaign,
+		UtmTerm:     row.UtmTerm,
+		UtmContent:  row.UtmContent,
+		Notes:       row.Notes,
+		UpdatedAt:   row.UpdatedAt,
+	}
+	var lastClickedAt *time.Time
+	if row.HasLastClickedAt {
+		value := row.LastClickedAt
+		lastClickedAt = &value
+	}
+	return LinkWithStats{Link: link, TotalClicks: row.TotalClicks, LastClickedAt: lastClickedAt}
 }
 
 // UpdateInput descreve uma atualização parcial (PATCH). Campos nil ficam
 // inalterados.
 type UpdateInput struct {
-	TargetURL *string
-	Title     *string
-	ExpiresAt *time.Time
-	IsActive  *bool
+	TargetURL   *string
+	Title       *string
+	ExpiresAt   *time.Time
+	IsActive    *bool
+	Campaign    *string
+	Tags        *[]string
+	UtmSource   *string
+	UtmMedium   *string
+	UtmCampaign *string
+	UtmTerm     *string
+	UtmContent  *string
+	Notes       *string
 }
 
 // Update aplica uma atualização parcial sobre um link existente.
@@ -140,13 +268,24 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, in UpdateInput) (db.
 	}
 
 	params := db.UpdateLinkParams{
-		ID:        id,
-		TargetUrl: current.TargetUrl,
-		Title:     current.Title,
-		ExpiresAt: current.ExpiresAt,
-		IsActive:  current.IsActive,
+		ID:          id,
+		TargetUrl:   current.TargetUrl,
+		Title:       current.Title,
+		ExpiresAt:   current.ExpiresAt,
+		IsActive:    current.IsActive,
+		Campaign:    current.Campaign,
+		Tags:        current.Tags,
+		UtmSource:   current.UtmSource,
+		UtmMedium:   current.UtmMedium,
+		UtmCampaign: current.UtmCampaign,
+		UtmTerm:     current.UtmTerm,
+		UtmContent:  current.UtmContent,
+		Notes:       current.Notes,
 	}
 
+	if params.Tags == nil {
+		params.Tags = []string{}
+	}
 	if in.TargetURL != nil {
 		if err := ValidateTargetURL(*in.TargetURL); err != nil {
 			return db.Link{}, err
@@ -154,13 +293,41 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, in UpdateInput) (db.
 		params.TargetUrl = *in.TargetURL
 	}
 	if in.Title != nil {
-		params.Title = in.Title
+		params.Title = cleanOptional(in.Title)
 	}
 	if in.ExpiresAt != nil {
 		params.ExpiresAt = in.ExpiresAt
 	}
 	if in.IsActive != nil {
 		params.IsActive = *in.IsActive
+	}
+	if in.Campaign != nil {
+		params.Campaign = cleanOptional(in.Campaign)
+	}
+	if in.Tags != nil {
+		tags, err := NormalizeTags(*in.Tags)
+		if err != nil {
+			return db.Link{}, err
+		}
+		params.Tags = tags
+	}
+	if in.UtmSource != nil {
+		params.UtmSource = cleanOptional(in.UtmSource)
+	}
+	if in.UtmMedium != nil {
+		params.UtmMedium = cleanOptional(in.UtmMedium)
+	}
+	if in.UtmCampaign != nil {
+		params.UtmCampaign = cleanOptional(in.UtmCampaign)
+	}
+	if in.UtmTerm != nil {
+		params.UtmTerm = cleanOptional(in.UtmTerm)
+	}
+	if in.UtmContent != nil {
+		params.UtmContent = cleanOptional(in.UtmContent)
+	}
+	if in.Notes != nil {
+		params.Notes = cleanOptional(in.Notes)
 	}
 
 	return s.q.UpdateLink(ctx, params)
@@ -176,6 +343,41 @@ func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+// NormalizeTags valida, remove duplicatas e preserva a ordem das tags.
+func NormalizeTags(tags []string) ([]string, error) {
+	out := make([]string, 0, len(tags))
+	seen := make(map[string]struct{}, len(tags))
+	for _, raw := range tags {
+		tag := strings.TrimSpace(raw)
+		if tag == "" {
+			continue
+		}
+		if len(tag) > MaxTagLength || !tagPattern.MatchString(tag) {
+			return nil, ErrInvalidTags
+		}
+		if _, ok := seen[tag]; ok {
+			continue
+		}
+		seen[tag] = struct{}{}
+		out = append(out, tag)
+		if len(out) > MaxTags {
+			return nil, ErrInvalidTags
+		}
+	}
+	return out, nil
+}
+
+func cleanOptional(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*value)
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
 }
 
 // isUniqueViolation detecta violação de unicidade do Postgres (SQLSTATE 23505).

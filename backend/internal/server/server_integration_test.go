@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -40,9 +41,14 @@ func TestHTTPContractsIntegration(t *testing.T) {
 	assertErrorCode(t, invalid, http.StatusBadRequest, "invalid_url")
 
 	create := performJSON(t, handler, http.MethodPost, "/api/links", integrationAPIKey, map[string]any{
-		"target_url": "https://example.com/path",
-		"slug":       "go",
-		"title":      "Exemplo",
+		"target_url":   "https://example.com/path",
+		"slug":         "go",
+		"title":        "Exemplo",
+		"campaign":     "launch",
+		"tags":         []string{"ads", "br"},
+		"utm_source":   "newsletter",
+		"utm_medium":   "email",
+		"utm_campaign": "launch",
 	})
 	if create.Code != http.StatusCreated {
 		t.Fatalf("create status = %d, want %d; body=%s", create.Code, http.StatusCreated, create.Body.String())
@@ -52,6 +58,9 @@ func TestHTTPContractsIntegration(t *testing.T) {
 	if created.Slug != "go" || created.ShortURL != "http://short.test/go" {
 		t.Fatalf("created = %#v, want slug go and short URL", created)
 	}
+	if created.Campaign == nil || *created.Campaign != "launch" || len(created.Tags) != 2 || created.UtmSource == nil || *created.UtmSource != "newsletter" {
+		t.Fatalf("metadata criada = %#v, want campaign/tags/utm", created)
+	}
 
 	duplicate := performJSON(t, handler, http.MethodPost, "/api/links", integrationAPIKey, map[string]any{
 		"target_url": "https://example.org",
@@ -59,7 +68,7 @@ func TestHTTPContractsIntegration(t *testing.T) {
 	})
 	assertErrorCode(t, duplicate, http.StatusConflict, "slug_taken")
 
-	list := performJSON(t, handler, http.MethodGet, "/api/links", integrationAPIKey, nil)
+	list := performJSON(t, handler, http.MethodGet, "/api/links?q=Exemplo&status=active&tag=ads&campaign=launch", integrationAPIKey, nil)
 	if list.Code != http.StatusOK {
 		t.Fatalf("list status = %d, want %d; body=%s", list.Code, http.StatusOK, list.Body.String())
 	}
@@ -67,6 +76,17 @@ func TestHTTPContractsIntegration(t *testing.T) {
 	decodeBody(t, list, &listed)
 	if listed.Total != 1 || len(listed.Data) != 1 {
 		t.Fatalf("listed total=%d len=%d, want one link", listed.Total, len(listed.Data))
+	}
+
+	invalidTag := performJSON(t, handler, http.MethodGet, "/api/links?tag=Ads", integrationAPIKey, nil)
+	assertErrorCode(t, invalidTag, http.StatusBadRequest, "invalid_tags")
+
+	export := performJSON(t, handler, http.MethodGet, "/api/links/export.csv?tag=ads&campaign=launch", integrationAPIKey, nil)
+	if export.Code != http.StatusOK {
+		t.Fatalf("export status = %d, want %d; body=%s", export.Code, http.StatusOK, export.Body.String())
+	}
+	if body := export.Body.String(); !strings.Contains(body, "utm_source") || !strings.Contains(body, "newsletter") || !strings.Contains(body, "ads|br") {
+		t.Fatalf("export CSV sem metadata esperada: %s", body)
 	}
 
 	start := time.Now()
@@ -128,11 +148,11 @@ VALUES ($1, 'stats', 'https://example.com/stats', 'Stats', true)
 		t.Fatal(err)
 	}
 
-	seedStatsClick(t, pool, linkID, baseDay.AddDate(0, 0, -35).Add(9*time.Hour), stringPtr("https://old.example"), "bot", "BR")
-	seedStatsClick(t, pool, linkID, baseDay.AddDate(0, 0, -8).Add(10*time.Hour), stringPtr("https://docs.example"), "mobile", "US")
-	seedStatsClick(t, pool, linkID, baseDay.AddDate(0, 0, -6).Add(11*time.Hour), stringPtr("https://google.com"), "desktop", "BR")
-	seedStatsClick(t, pool, linkID, baseDay.AddDate(0, 0, -1).Add(12*time.Hour), nil, "", "")
-	seedStatsClick(t, pool, linkID, baseDay.Add(13*time.Hour), stringPtr("https://google.com"), "desktop", "BR")
+	seedStatsClick(t, pool, linkID, baseDay.AddDate(0, 0, -35).Add(9*time.Hour), stringPtr("https://old.example"), "bot", "Googlebot", "unknown", "BR", "Sao Paulo")
+	seedStatsClick(t, pool, linkID, baseDay.AddDate(0, 0, -8).Add(10*time.Hour), stringPtr("https://docs.example"), "mobile", "Safari", "iOS", "US", "Austin")
+	seedStatsClick(t, pool, linkID, baseDay.AddDate(0, 0, -6).Add(11*time.Hour), stringPtr("https://google.com"), "desktop", "Chrome", "Windows", "BR", "Sao Paulo")
+	seedStatsClick(t, pool, linkID, baseDay.AddDate(0, 0, -1).Add(12*time.Hour), nil, "", "", "", "", "")
+	seedStatsClick(t, pool, linkID, baseDay.Add(13*time.Hour), stringPtr("https://google.com"), "desktop", "Chrome", "Windows", "BR", "Sao Paulo")
 
 	tests := []struct {
 		rangeValue string
@@ -173,6 +193,9 @@ VALUES ($1, 'stats', 'https://example.com/stats', 'Stats', true)
 	decodeBody(t, rec, &seven)
 	assertBreakdownContains(t, seven.Devices, "unknown", 1)
 	assertBreakdownContains(t, seven.Countries, "unknown", 1)
+	assertBreakdownContains(t, seven.Browsers, "Chrome", 2)
+	assertBreakdownContains(t, seven.OperatingSystems, "Windows", 2)
+	assertBreakdownContains(t, seven.Cities, "Sao Paulo", 2)
 	if len(seven.TopReferrers) == 0 || seven.TopReferrers[0].Referrer == nil || *seven.TopReferrers[0].Referrer != "https://google.com" || seven.TopReferrers[0].Clicks != 2 {
 		t.Fatalf("top referrer = %#v, want google with 2 clicks", seven.TopReferrers)
 	}
@@ -277,7 +300,7 @@ func waitForClickCount(t *testing.T, pool *pgxpool.Pool, linkID uuid.UUID, want 
 	}
 }
 
-func seedStatsClick(t *testing.T, pool *pgxpool.Pool, linkID uuid.UUID, createdAt time.Time, referrer *string, deviceType, country string) {
+func seedStatsClick(t *testing.T, pool *pgxpool.Pool, linkID uuid.UUID, createdAt time.Time, referrer *string, deviceType, browser, osName, country, city string) {
 	t.Helper()
 	ctx := context.Background()
 	clickID, err := uuid.NewV7()
@@ -285,9 +308,9 @@ func seedStatsClick(t *testing.T, pool *pgxpool.Pool, linkID uuid.UUID, createdA
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx, `
-INSERT INTO clicks (id, link_id, created_at, ip_hash, referrer, ua_raw, device_type, country, enriched_at)
-VALUES ($1, $2, $3, $4, $5, 'ua', $6, $7, now())
-`, clickID, linkID, createdAt, "hash-"+strconv.FormatInt(createdAt.UnixNano(), 10), referrer, emptyStringToNil(deviceType), emptyStringToNil(country)); err != nil {
+INSERT INTO clicks (id, link_id, created_at, ip_hash, referrer, ua_raw, device_type, browser, os, country, city, enriched_at)
+VALUES ($1, $2, $3, $4, $5, 'ua', $6, $7, $8, $9, $10, now())
+`, clickID, linkID, createdAt, "hash-"+strconv.FormatInt(createdAt.UnixNano(), 10), referrer, emptyStringToNil(deviceType), emptyStringToNil(browser), emptyStringToNil(osName), emptyStringToNil(country), emptyStringToNil(city)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx, `
